@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -51,8 +50,8 @@
         
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        let projetos = ['Geral', 'Trabalho'];
-        let activeTab = 'Geral';
+        let projetos = [];
+        let activeTab = null;
         let tasks = [];
 
         // Elementos DOM
@@ -71,7 +70,46 @@
             setTimeout(() => { messageDiv.style.display = 'none'; }, 3000);
         }
 
+        // Carregar projetos do Supabase
+        async function loadProjects() {
+            loadingDiv.style.display = 'block';
+            try {
+                const { data, error } = await _supabase
+                    .from('projetos')
+                    .select('nome')
+                    .order('created_at', { ascending: true });
+
+                if (error) throw error;
+
+                projetos = data ? data.map(p => p.nome) : [];
+                
+                if (projetos.length === 0) {
+                    const defaultProjects = ['Geral', 'Trabalho'];
+                    const { error: insertError } = await _supabase
+                        .from('projetos')
+                        .insert(defaultProjects.map(nome => ({ nome })));
+
+                    if (insertError) throw insertError;
+                    projetos = [...defaultProjects];
+                }
+
+                if (!activeTab && projetos.length > 0) {
+                    activeTab = projetos[0];
+                }
+
+                render();
+                await loadTasks();
+            } catch (error) {
+                console.error('Erro ao carregar projetos:', error.message);
+                mostrarMensagem('Erro ao carregar projetos: ' + error.message, 'error');
+            } finally {
+                loadingDiv.style.display = 'none';
+            }
+        }
+
         async function loadTasks() {
+            if (!activeTab) return;
+            
             loadingDiv.style.display = 'block';
             emptyState.style.display = 'none';
             try {
@@ -93,7 +131,6 @@
         }
 
         function render() {
-            // Renderizar Abas
             const tabsContainer = document.getElementById('tabs-container');
             tabsContainer.innerHTML = '';
             projetos.forEach(proj => {
@@ -106,7 +143,6 @@
                 tabsContainer.appendChild(btn);
             });
 
-            // Renderizar Tarefas
             const listContainer = document.getElementById('task-list');
             listContainer.innerHTML = '';
 
@@ -115,6 +151,7 @@
                 return;
             }
 
+            emptyState.style.display = 'none';
             tasks.forEach((task) => {
                 const li = document.createElement('li');
                 li.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg border hover:shadow-sm transition';
@@ -132,11 +169,32 @@
         async function addProject() {
             const input = document.getElementById('new-project-input');
             const name = input.value.trim();
-            if (name && !projetos.includes(name)) {
+            
+            if (!name) {
+                mostrarMensagem('Digite um nome para o projeto!', 'error');
+                return;
+            }
+
+            if (projetos.includes(name)) {
+                mostrarMensagem('Este projeto já existe!', 'error');
+                return;
+            }
+
+            try {
+                const { error } = await _supabase
+                    .from('projetos')
+                    .insert([{ nome: name }]);
+
+                if (error) throw error;
+
                 projetos.push(name);
                 activeTab = name;
                 input.value = '';
-                loadTasks();
+                mostrarMensagem('Projeto criado! ✅', 'success');
+                render();
+                await loadTasks();
+            } catch (error) {
+                mostrarMensagem('Erro ao criar projeto: ' + error.message, 'error');
             }
         }
 
@@ -185,13 +243,11 @@
             }
         }
 
-        // Suporte à tecla Enter
         taskInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') addTask();
         });
 
-        // Carga inicial
-        loadTasks();
+        loadProjects();
     </script>
 </body>
 </html>
