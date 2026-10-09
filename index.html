@@ -1,0 +1,197 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meus To-Do List - Projetos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gradient-to-br from-indigo-500 to-purple-600 min-h-screen p-4 md:p-8 flex items-center justify-center">
+    <div class="w-full max-w-xl bg-white rounded-xl shadow-2xl p-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-4 text-center">📝 Minhas Tarefas por Projeto</h1>
+
+        <!-- Mensagens de Feedback (Sucesso / Erro) -->
+        <div id="message" class="hidden mb-4 p-3 rounded-lg text-sm text-center font-medium"></div>
+
+        <!-- Abas dos Projetos -->
+        <div class="flex items-center gap-2 mb-4 overflow-x-auto pb-2" id="tabs-container"></div>
+        
+        <!-- Criar Novo Projeto -->
+        <div class="flex gap-2 mb-6">
+            <input type="text" id="new-project-input" placeholder="Novo Projeto..." class="border rounded px-3 py-1.5 text-sm flex-1 outline-none focus:border-indigo-500">
+            <button onclick="addProject()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-semibold transition">+ Projeto</button>
+        </div>
+
+        <!-- Criar Tarefa no Projeto Atual -->
+        <div class="flex gap-2 mb-4">
+            <input type="text" id="task-input" placeholder="Nova tarefa neste projeto..." class="border rounded px-3 py-2 flex-1 outline-none focus:border-indigo-500" autocomplete="off">
+            <button id="add-btn" onclick="addTask()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded font-semibold transition">+ Adicionar</button>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="text-center text-indigo-600 font-semibold my-4" style="display: none;">
+            ⏳ Carregando tarefas...
+        </div>
+
+        <!-- Lista de Tarefas -->
+        <ul id="task-list" class="space-y-2"></ul>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="text-center text-gray-400 py-8" style="display: none;">
+            ✨ Nenhuma tarefa neste projeto. Adicione uma!
+        </div>
+    </div>
+
+    <script>
+        // ⚠️ SUBSTITUA PELAS SUAS CHAVES DO SUPABASE
+        const SUPABASE_URL = "https://qmfdkqgspvofzvypcsht.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFtZmRrcWdzcHZvZnp2eXBjc2h0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1NzE4ODEsImV4cCI6MjEwNzE0Nzg4MX0.uBCzsQ80SRHF1QoE9l2VdoRapsekX_qVwzsUz9LH03c";
+        
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let projetos = ['Geral', 'Trabalho'];
+        let activeTab = 'Geral';
+        let tasks = [];
+
+        // Elementos DOM
+        const messageDiv = document.getElementById('message');
+        const loadingDiv = document.getElementById('loading');
+        const emptyState = document.getElementById('empty-state');
+        const taskInput = document.getElementById('task-input');
+        const addBtn = document.getElementById('add-btn');
+
+        function mostrarMensagem(msg, tipo) {
+            messageDiv.textContent = msg;
+            messageDiv.className = `mb-4 p-3 rounded-lg text-sm text-center font-medium ${
+                tipo === 'error' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-green-100 text-green-700 border border-green-200'
+            }`;
+            messageDiv.style.display = 'block';
+            setTimeout(() => { messageDiv.style.display = 'none'; }, 3000);
+        }
+
+        async function loadTasks() {
+            loadingDiv.style.display = 'block';
+            emptyState.style.display = 'none';
+            try {
+                const { data, error } = await _supabase
+                    .from('tarefas')
+                    .select('*')
+                    .eq('projeto', activeTab)
+                    .order('id', { ascending: true });
+
+                if (error) throw error;
+
+                tasks = data || [];
+                render();
+            } catch (error) {
+                mostrarMensagem('Erro ao carregar tarefas: ' + error.message, 'error');
+            } finally {
+                loadingDiv.style.display = 'none';
+            }
+        }
+
+        function render() {
+            // Renderizar Abas
+            const tabsContainer = document.getElementById('tabs-container');
+            tabsContainer.innerHTML = '';
+            projetos.forEach(proj => {
+                const btn = document.createElement('button');
+                btn.className = `px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+                    proj === activeTab ? 'bg-indigo-600 text-white shadow' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`;
+                btn.innerText = proj;
+                btn.onclick = () => { activeTab = proj; loadTasks(); };
+                tabsContainer.appendChild(btn);
+            });
+
+            // Renderizar Tarefas
+            const listContainer = document.getElementById('task-list');
+            listContainer.innerHTML = '';
+
+            if (tasks.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            tasks.forEach((task) => {
+                const li = document.createElement('li');
+                li.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg border hover:shadow-sm transition';
+                li.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" ${task.concluida ? 'checked' : ''} onchange="toggleTask(${task.id}, ${task.concluida})" class="w-4 h-4 cursor-pointer">
+                        <span class="${task.concluida ? 'line-through text-gray-400' : 'text-gray-800'}">${task.texto}</span>
+                    </div>
+                    <button onclick="deleteTask(${task.id})" class="text-red-500 font-bold hover:text-red-700 text-sm px-2 py-1">✕</button>
+                `;
+                listContainer.appendChild(li);
+            });
+        }
+
+        async function addProject() {
+            const input = document.getElementById('new-project-input');
+            const name = input.value.trim();
+            if (name && !projetos.includes(name)) {
+                projetos.push(name);
+                activeTab = name;
+                input.value = '';
+                loadTasks();
+            }
+        }
+
+        async function addTask() {
+            const text = taskInput.value.trim();
+            if (!text) {
+                mostrarMensagem('Por favor, digite uma tarefa!', 'error');
+                return;
+            }
+
+            addBtn.disabled = true;
+            try {
+                const { error } = await _supabase.from('tarefas').insert([{ projeto: activeTab, texto: text, concluida: false }]);
+                if (error) throw error;
+
+                taskInput.value = '';
+                mostrarMensagem('Tarefa adicionada! ✅', 'success');
+                await loadTasks();
+            } catch (error) {
+                mostrarMensagem('Erro ao adicionar: ' + error.message, 'error');
+            } finally {
+                addBtn.disabled = false;
+            }
+        }
+
+        async function toggleTask(id, currentStatus) {
+            try {
+                const { error } = await _supabase.from('tarefas').update({ concluida: !currentStatus }).eq('id', id);
+                if (error) throw error;
+                await loadTasks();
+            } catch (error) {
+                mostrarMensagem('Erro ao atualizar: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteTask(id) {
+            if (!confirm('Tem certeza que deseja deletar?')) return;
+
+            try {
+                const { error } = await _supabase.from('tarefas').delete().eq('id', id);
+                if (error) throw error;
+                mostrarMensagem('Tarefa removida! 🗑️', 'success');
+                await loadTasks();
+            } catch (error) {
+                mostrarMensagem('Erro ao deletar: ' + error.message, 'error');
+            }
+        }
+
+        // Suporte à tecla Enter
+        taskInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addTask();
+        });
+
+        // Carga inicial
+        loadTasks();
+    </script>
+</body>
+</html>
